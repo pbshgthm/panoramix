@@ -1,22 +1,19 @@
 service: aws-python
 
-frameworkVersion: '3'
+frameworkVersion: '2'
 
 provider:
   name: aws
   runtime: python3.8
+  lambdaHashingVersion: 20201221
+  timeout: 30
+  memorySize: 10240
 
 
 functions:
   hello:
-    handler: handler.hello
+    handler: handler.decompile_bytecode
     events:
       - http:
           path: /
           method: post
-
-plugins:
-  - serverless-python-requirements
-custom:
-  pythonRequirements:
-    dockerizePip: non-linux

@@ -78,7 +78,6 @@ class Loader(EasyCopy):
             import os
             exc_type, exc_obj, exc_tb = sys.exc_info()
             print(exc_type, exc_obj, exc_tb)
-            #self.add_func(0, name="_fallback()")
 
         for hash, (target, stack) in self.hash_targets.items():
             self.func_list.append((hash, target, stack))

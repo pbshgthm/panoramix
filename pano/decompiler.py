@@ -1,4 +1,4 @@
-import timeout_decorator
+from vendored import timeout_decorator
 from pano.function import Function
 from pano.loader import Loader
 from pano.vm import VM
@@ -18,7 +18,7 @@ def decompile(bytecode):
             if target > 1 and loader.lines[target][1] == "jumpdest":
                 target += 1
 
-            @timeout_decorator.timeout(120, use_signals=True)
+            @timeout_decorator.timeout(15, use_signals=True)
             def dec():
                 trace = VM(loader).run(target, stack=stack)
                 return trace
