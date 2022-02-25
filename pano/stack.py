@@ -4,7 +4,7 @@ from copy import copy
 import core.arithmetic as arithmetic
 from core.algebra import mask_op, neg_mask_op
 from core.masks import to_mask, to_neg_mask
-from pano.prettify import prettify
+#from pano.prettify import prettify
 from utils.helpers import EasyCopy, opcode, to_exp2
 
 logger = logging.getLogger(__name__)
@@ -53,7 +53,8 @@ class Stack(EasyCopy):
     def __str__(self):
         return (
             "["
-            + (", ".join([prettify(el, parentheses=False) for el in self.stack]))
+            + (", ".join([prettify(el, parentheses=False)
+               for el in self.stack]))
             + "]"
         )
 
@@ -161,7 +162,8 @@ class Stack(EasyCopy):
                 (m1, m2) = left_mask
                 exp = mask_op(right, m1, m2)
 
-            else:  # could be 'elif to_mask(right)', but that's slower bc we have to call to_mask twice then
+            # could be 'elif to_mask(right)', but that's slower bc we have to call to_mask twice then
+            else:
                 right_mask = to_mask(right)
 
                 if right_mask:
@@ -209,7 +211,8 @@ class Stack(EasyCopy):
                         stack[i] = ("bool", 0)
 
                 elif (
-                    s[0] == "iszero" and opcode(s[1]) == "bool" and type(s[1][1]) == int
+                    s[0] == "iszero" and opcode(
+                        s[1]) == "bool" and type(s[1][1]) == int
                 ):
                     stack[i] = ("bool", 1 - s[1][1])
 

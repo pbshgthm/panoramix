@@ -1,43 +1,12 @@
-import json
-import logging
-import os.path
-import traceback
-
 from pano.matcher import match
 from utils.helpers import (
-    COLOR_GRAY,
-    ENDC,
     EasyCopy,
-    assure_dir_exists,
-    colorize,
     find_f,
     find_f_list,
     padded_hex,
     pretty_bignum,
 )
 from utils.opcode_dict import opcode_dict
-from utils.profiler import checkpoint
-from utils.signatures import get_func_name, make_abi
-from utils.supplement import fetch_sig
-
-logger = logging.getLogger(__name__)
-
-cache_sigs = {
-    True: {},
-    False: {},
-}
-
-
-def code_fetch(address, network="mainnet"):
-    assert (
-        network == "mainnet"
-    ), "only mainnet supported, but you can set WEB3_PROVIDER_URI to whatever node you want on whatever network"
-
-    from web3.auto import w3
-
-    code = w3.eth.getCode(address).hex()[2:]
-
-    return code
 
 
 class Loader(EasyCopy):
@@ -46,124 +15,24 @@ class Loader(EasyCopy):
     lines = {}  # global, let's assume one loader for now
     binary = []  # array of ints, each int represents a byte in the source file
 
-    @staticmethod
-    def find_sig(sig, add_color=False):
-        if "???" in sig:
-            return None
-
-        if sig in Loader.signatures:
-            if "unknown" not in Loader.signatures[sig]:
-                return Loader.signatures[sig]
-
-        if sig in cache_sigs[add_color]:
-            return cache_sigs[add_color][sig]
-
-        if len(sig) < 8:
-            return None
-
-        a = fetch_sig(sig)
-        if a is None:
-            return None
-
-        # duplicate of get_func_name from signatures
-        if "params" in a:
-            res = "{}({})".format(
-                a["name"],
-                ", ".join(
-                    [
-                        colorize(x["type"], COLOR_GRAY, add_color) + " " + x["name"][1:]
-                        for x in a["params"]
-                    ]
-                ),
-            )
-        else:
-            res = a["folded_name"]
-
-        cache_sigs[add_color][sig] = res
-        return res
-
-    def __init__(self):
+    def __init__(self, bytecode):
         self.last_line = None
         self.jump_dests = []
         self.func_dests = {}  # func_name -> jumpdest
         self.hash_targets = {}  # hash -> (jumpdest, stack)
         self.func_list = []
-
-        self.addr = None
         self.binary = None
+        self.load_binary(bytecode[2:])
+        self.nonpayable = None
+        self.check_nonpayable(bytecode)
 
-    def load(self, this_addr):
-        if len(this_addr) > 30:
-            self.load_addr(this_addr)
+    def check_nonpayable(self, bytecode):
+        if bytecode[2:18] == '6080604052348015':
+            self.nonpayable = True
         else:
-            self.load_stdin(this_addr)
-
-    def load_stdin(self, hash_id):
-        assure_dir_exists("cache_stdin")
-
-        fname = f"cache_stdin/{hash_id}.bin"
-        address = hash_id
-        self.addr = hash_id
-        with open(fname) as f:
-            code = f.read()
-            self.network = "stdin"
-
-        self.load_binary(code)
-
-    def load_addr(self, address):
-        if address == address.lower():
-            logger.warning(
-                "Address not checksummed. Fixed, but needed to import web3 (+0.6s exec time)"
-            )
-            from web3 import Web3  # only here, because Web3
-
-            address = Web3.toChecksumAddress(address)
-
-        self.addr = address
-
-        fname = None
-        code = None
-
-        dir_name = "cache_code/" + address[:5] + "/"
-
-        assure_dir_exists(dir_name)
-
-        cache_fname = f"{dir_name}{address}.bin"
-
-        if address == address.lower() and os.path.isfile(cache_fname.lower()):
-            print(
-                "addr not checksummed, but found a checksummed one in cache, using that one"
-            )
-            cache_fname = cache_fname.lower()
-
-        if os.path.isfile(cache_fname):
-            logger.info("Code for %s found in cache...", address)
-
-            with open(cache_fname) as source_file:
-                code = source_file.read()
-                self.network = "mainnet"
-
-        else:
-            logger.info("Fetching code for %s...", address)
-
-            code = ""
-            for network in "mainnet", "goerli", "ropsten", "kovan", "rinkeby":
-                code = code_fetch(address, network)
-                if len(code) > 0:
-                    self.network = network
-                    break
-            else:
-                self.network = "none"
-
-            with open(cache_fname, "w+") as f:
-                f.write(code)
-
-            fname = cache_fname
-
-        self.load_binary(code)
+            self.nonpayable = False
 
     def run(self, vm):
-        assert self.binary is not None, "Did you run load_*() first?"
 
         try:
             # decompiles the code, starting from location 0
@@ -204,13 +73,11 @@ class Loader(EasyCopy):
             self.add_func(default or 0, name="_fallback()")
 
         except Exception:
-            logger.exception("Loader issue.")
-            self.add_func(0, name="_fallback()")
+            print('ERR in loader', Exception)
+            #self.add_func(0, name="_fallback()")
 
-        abi = make_abi(self.hash_targets)
         for hash, (target, stack) in self.hash_targets.items():
-            fname = get_func_name(hash)
-            self.func_list.append((hash, fname, target, stack))
+            self.func_list.append((hash, target, stack))
 
     def next_line(self, i):
         i += 1
@@ -225,7 +92,8 @@ class Loader(EasyCopy):
     def add_func(self, target, hash=None, name=None, stack=()):
 
         assert hash is not None or name is not None  # we need at least one
-        assert not (hash is not None and name is not None)  # we don't want both
+        # we don't want both
+        assert not (hash is not None and name is not None)
 
         if hash is not None:
             padded = padded_hex(hash, 8)  # lines[i-12][2]
@@ -241,10 +109,6 @@ class Loader(EasyCopy):
             self.hash_targets[padded_hex(hash, 8)] = target, stack
 
         self.func_dests[name] = target
-
-    def disasm(self):
-        for line_no, op, param in self.parsed_lines:
-            yield f"{hex(line_no)}, {op}, {hex(param) if param is not None else ''}"
 
     def load_binary(self, source):
         stack = []

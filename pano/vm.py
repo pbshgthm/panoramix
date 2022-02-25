@@ -1,4 +1,3 @@
-import logging
 import sys
 from copy import copy
 
@@ -17,7 +16,6 @@ from core.algebra import (
 )
 from core.arithmetic import is_zero, simplify_bool
 from pano.matcher import match
-from pano.prettify import pprint_trace
 from utils.helpers import (
     C,
     EasyCopy,
@@ -28,27 +26,6 @@ from utils.helpers import (
 )
 
 from .stack import Stack, fold_stacks
-
-loader_dests = None
-logger = logging.getLogger(__name__)
-
-
-"""
-
-    A symbolic EVM.
-
-    It executes the contract, and returns the resulting `trace` of execution - which is the decompiled form.
-
-
-    The most difficult part of this module is the loop detection and simplification algorithm.
-    In over 10 iterations I didn't find a simpler way that is just as effective.
-
-    Unfortunately, because of the complexity, I don't fully understand how it works.
-    Ergo, I cannot explain it to you :) Good luck!
-
-    On the upside, some stuff, like apply_stack is quite straightforward.
-
-"""
 
 
 def mem_load(pos, size=32):
@@ -73,20 +50,11 @@ node_count = 0
 
 
 class Node:
-    def __str__(self):
-        return f"Node({self.jd})"
-
-    def __repr__(self):
-        # technically not a proper _repr_, but some trace printout functions use this
-        # instead of a proper str
-        return self.__str__()
 
     def __init__(self, vm, start, safe, stack, condition=True, trace=None):
         global node_count
 
         node_count += 1
-        #        if node_count % 1000 == 0:
-        #            print(node_count)
 
         if node_count > 100_000:
             raise RuntimeError("Too many nodes / function too big.")
@@ -106,7 +74,8 @@ class Node:
         self.condition = condition
 
         stack_obj = Stack(stack)
-        self.jd = (start, len(stack), tuple(stack_obj.jump_dests(loader_dests)))
+        self.jd = (start, len(stack), tuple(
+            stack_obj.jump_dests(loader_dests)))
 
     def apply_vars(var_list):
         for orig_name, new_name in var_list:
@@ -136,7 +105,8 @@ class Node:
         else:
             begin = []
 
-        begin += [("label", self, tuple(begin_vars))] if self.is_label() else []
+        begin += [("label", self, tuple(begin_vars))
+                  ] if self.is_label() else []
 
         last = self.trace[-1]
 
@@ -178,9 +148,9 @@ class Node:
         return self.label is not None
 
     def run(self):
-        logger.debug("Node.run(%s)", self)
         self.prev_trace = self.trace
-        self.trace = self.vm._run(self.start, self.safe, self.stack, self.condition)
+        self.trace = self.vm._run(
+            self.start, self.safe, self.stack, self.condition)
 
         last = self.trace[-1]
 
@@ -221,46 +191,16 @@ class VM(EasyCopy):
             ("jump", func_node, "safe", tuple()),
         ]
 
-        root = Node(vm=self, trace=trace, start=start, safe=True, stack=list(stack))
+        root = Node(vm=self, trace=trace, start=start,
+                    safe=True, stack=list(stack))
         func_node.set_prev(root)
-
-        """
-
-            BFS symbolic execution, ends up with a decompiled
-            code, with labels and gotos.
-
-            Depth-first would be way easier to implement, but it tends
-            to work way slower because of the loops.
-
-        """
 
         for j in range(20):  # 20
 
             for i in range(200):  # 300
-                """
-
-                    Find all the jumps, and expand them until
-                    the next jump.
-
-                """
 
                 self.expand_trace(root)
-
-                """
-                     find all the jumps that lead to an already
-                     reached jumpdest (with similar stack, otherwise
-                     we'd catch function calls as all).
-
-                     replace them with 'loop' identifier
-                """
-
                 self.replace_loops(root)
-
-                """
-                    repeat until there are no more jumps
-                    to explore (so, until the trace didn't change)
-
-                """
 
                 nodes = find_nodes(root, lambda n: n.trace is None)
 
@@ -346,7 +286,6 @@ class VM(EasyCopy):
                 node.set_label(loop_dest, tuple(vars), new_stack)
 
     def _run(self, start, safe, stack, condition):
-        logger.debug("VM._run stack=%s", stack)
         self.stack = Stack(stack)
         trace = []
 
@@ -382,7 +321,6 @@ class VM(EasyCopy):
                     stack=tuple(self.stack.stack),
                     condition=condition,
                 )
-                logger.debug("jumpdest %s", n)
                 trace.append(("jump", n))
                 return trace
 
@@ -397,32 +335,6 @@ class VM(EasyCopy):
 
         i, op = line[0], line[1]
         stack = self.stack
-
-        if "--explain" in sys.argv and op in (
-            "jump",
-            "jumpi",
-            "selfdestruct",
-            "stop",
-            "return",
-            "invalid",
-            "assert_fail",
-            "revert",
-        ):
-            trace.append(C.asm(f"       {stack}"))
-            trace.append("")
-            trace.append(f"[{line[0]}] {C.asm(op)}")
-
-        if op in (
-            "jump",
-            "jumpi",
-            "selfdestruct",
-            "stop",
-            "return",
-            "invalid",
-            "assert_fail",
-            "revert",
-        ):
-            logger.debug("[%s] %s", i, op)
 
         if op == "jump":
             target = stack.pop()
@@ -464,13 +376,15 @@ class VM(EasyCopy):
                     and str(("cd", 0)) in str(m.is_cd)
                     and isinstance(m.fx_hash, int)
                 ):
-                    n_true.trace = [("funccall", m.fx_hash, target, tuple_stack)]
+                    n_true.trace = [
+                        ("funccall", m.fx_hash, target, tuple_stack)]
                 if (
                     (m := match(if_condition, ("eq", ":is_cd", ":fx_hash")))
                     and str(("cd", 0)) in str(m.is_cd)
                     and isinstance(m.fx_hash, int)
                 ):
-                    n_true.trace = [("funccall", m.fx_hash, target, tuple_stack)]
+                    n_true.trace = [
+                        ("funccall", m.fx_hash, target, tuple_stack)]
 
             if_true = ("jump", n_true)
             if_false = ("jump", n_false)
@@ -489,7 +403,6 @@ class VM(EasyCopy):
                     return trace
 
             trace.append(("if", if_condition, n_true, n_false,))
-            logger.debug("jumpi -> if %s", trace[-1])
             return trace
 
         elif op in ["return", "revert"]:
@@ -520,11 +433,6 @@ class VM(EasyCopy):
 
     def apply_stack(self, ret, line):
         def trace(exp, *format_args):
-            try:
-                logger.debug("Trace: %s", str(exp).format(*format_args))
-            except Exception:
-                pass
-
             if type(exp) == str:
                 ret.append(exp.format(*format_args))
             else:
@@ -535,20 +443,6 @@ class VM(EasyCopy):
         op = line[1]
 
         previous_len = stack.len()
-
-        if "--verbose" in sys.argv or "--explain" in sys.argv:
-            trace(C.asm("       " + str(stack)))
-            trace("")
-
-            if "push" not in op and "dup" not in op and "swap" not in op:
-                trace("[{}] {}", line[0], C.asm(op))
-            else:
-                if type(line[2]) == str:
-                    trace("[{}] {} {}", line[0], C.asm(op), C.asm(" ”" + line[2] + "”"))
-                elif line[2] > 0x1000000000:
-                    trace("[{}] {} {}", line[0], C.asm(op), C.asm(hex(line[2])))
-                else:
-                    trace("[{}] {} {}", line[0], C.asm(op), C.asm(str(line[2])))
 
         param = 0
         if len(line) > 2:
@@ -719,8 +613,7 @@ class VM(EasyCopy):
             for i in range(param):
                 el = stack.pop()
                 topics.append(el)
-
-            trace(("log", mem_load(p, s),) + tuple(topics))
+            trace((op[:3], mem_load(p, s),) + tuple(topics))
 
         elif op == "sload":
             sloc = stack.pop()
@@ -904,7 +797,8 @@ class VM(EasyCopy):
                 stack.pop(),
             )
 
-            call_trace = ("create2", wei, ("mem", ("range", mem_start, mem_len)), salt)
+            call_trace = ("create2", wei,
+                          ("mem", ("range", mem_start, mem_len)), salt)
 
             trace(call_trace)
 
@@ -937,12 +831,11 @@ class VM(EasyCopy):
             ]
 
         if stack.len() - previous_len != opcode_dict.stack_diffs[op]:
-            logger.error("line: %s", line)
-            logger.error("stack: %s", stack)
-            logger.error(
-                "expected %s, got %s stack diff",
-                opcode_dict.stack_diffs[op],
-                stack.len() - previous_len,
+            print("line: ", line)
+            print("stack: %s", stack)
+            print(
+                "expected", opcode_dict.stack_diffs[op], "got", stack.len(
+                ) - previous_len, "stack diff"
             )
             assert False, f"opcode {op} not processed correctly"
 
