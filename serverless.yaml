@@ -1,0 +1,22 @@
+service: aws-python
+
+frameworkVersion: '3'
+
+provider:
+  name: aws
+  runtime: python3.8
+
+
+functions:
+  hello:
+    handler: handler.hello
+    events:
+      - http:
+          path: /
+          method: post
+
+plugins:
+  - serverless-python-requirements
+custom:
+  pythonRequirements:
+    dockerizePip: non-linux

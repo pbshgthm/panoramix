@@ -210,7 +210,7 @@ class Function(EasyCopy):
                                 exp, ("log", Any, Any, Any, Any, Any)):
 
                 log = [padded_hex(exp[2], 64)
-                       if type(exp[2]) is int else '_UNKNOWN']
+                       if type(exp[2]) is int else 'UNKNOWN']
             return log
 
         logs = find_f_list(self.trace, l)
